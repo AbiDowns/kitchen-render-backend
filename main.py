@@ -6,7 +6,6 @@ import os
 
 app = FastAPI()
 
-# Allow requests from any domain (you can lock this later)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -30,3 +29,4 @@ async def upload_image(
     return JSONResponse({
         "image_url": "https://via.placeholder.com/800x400.png?text=Your+3D+Kitchen+Render"
     })
+
