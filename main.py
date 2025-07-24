@@ -6,16 +6,16 @@ import os
 
 app = FastAPI()
 
-from fastapi.middleware.cors import CORSMiddleware
-
+# ✅ Enable CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://purplegranite.co.uk"],  # ✅ Allow only your Shopify domain
+    allow_origins=["https://purplegranite.co.uk"],  # Or ["*"] for testing
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# ✅ /upload route
 @app.post("/upload")
 async def upload_image(
     plan: UploadFile = File(...),
@@ -31,4 +31,3 @@ async def upload_image(
     return JSONResponse({
         "image_url": "https://via.placeholder.com/800x400.png?text=Your+3D+Kitchen+Render"
     })
-
