@@ -1,62 +1,59 @@
 from fastapi import FastAPI, UploadFile, File, Form
-from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-import uuid
-import os
 import replicate
+import os
+import uuid
 
-# Initialize FastAPI app
 app = FastAPI()
 
-# Allow frontend to talk to backend (CORS)
+# Serve static files (e.g. images)
+os.makedirs("static", exist_ok=True)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Allow CORS for your Shopify frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://purplegranite.co.uk"],  # Update with your live store URL
+    allow_origins=["*"],  # Replace with your domain for security
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Make sure static directory exists
-os.makedirs("static", exist_ok=True)
-
-# Mount static file folder (for future use)
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-# Get Replicate token from env
+# Setup Replicate API token from environment variable
 replicate_client = replicate.Client(api_token=os.environ["REPLICATE_API_TOKEN"])
 
-# Upload endpoint
 @app.post("/upload")
 async def upload_image(
     plan: UploadFile = File(...),
     cabinet: str = Form(...),
     worktop: str = Form(...)
 ):
-    try:
-        # Save uploaded image to local file
-        filename = f"{uuid.uuid4()}.jpg"
-        file_path = f"static/{filename}"
-        with open(file_path, "wb") as f:
-            f.write(await plan.read())
+    # Save the uploaded sketch
+    filename = f"{uuid.uuid4()}.jpg"
+    file_path = f"static/{filename}"
+    with open(file_path, "wb") as f:
+        f.write(await plan.read())
 
-        # Call Replicate model (update with actual model)
-        model_output = replicate_client.run(
-            "fofr/anything-v4.0:latest",  # Replace with your actual 3D render model
+    # Use Replicate to generate render
+    try:
+        output_url = replicate.run(
+            "lucataco/sdxl-controlnet:06d6fae3b75ab68a28cd2900afa6033166910dd09fd9751047043a5bbb4c184b",
             input={
-                "image": open(file_path, "rb"),
-                "prompt": f"A 3D render of a kitchen with {cabinet} cabinets and a {worktop} worktop"
+                "seed": 1234,
+                "image": f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME')}/static/{filename}",
+                "prompt": f"kitchen with {cabinet} cabinets and {worktop} worktop, realistic, modern style",
+                "condition_scale": 0.6,
+                "negative_prompt": "low quality, bad sketch",
+                "num_inference_steps": 40
             }
         )
 
-        # Extract image URL from response
-        if isinstance(model_output, list):
-            image_url = model_output[0]
-        else:
-            image_url = model_output
+        return JSONResponse({"image_url": output_url})
 
-        return JSONResponse({"image_url": image_url})
-
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+    except replicate.exceptions.ReplicateError as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": "AI render failed", "details": str(e)}
+        )
