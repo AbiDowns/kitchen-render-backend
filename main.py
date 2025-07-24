@@ -1,56 +1,47 @@
+import replicate
+import os
+import tempfile
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-import uuid
-import os
-import replicate
 
-# ✅ Your Replicate API Token
-REPLICATE_API_TOKEN = "r8_0RoLEtZ6Xd5LsPYIP5m9uHPwsCt14Pm2hsj7Q"
-replicate.Client(api_token=REPLICATE_API_TOKEN)
+# Load your token from the environment variable
+replicate.Client(api_token=os.environ.get("REPLICATE_API_TOKEN"))
 
-# ✅ FastAPI setup
 app = FastAPI()
 
-# ✅ Serve uploaded images (optional)
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-# ✅ Allow requests from your Shopify site
+# Enable CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://purplegranite.co.uk"],  # Use ["*"] for testing if needed
+    allow_origins=["*"],  # Change this to your Shopify domain in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ✅ Main endpoint for upload + AI render
 @app.post("/upload")
-async def upload_image(
+async def upload_file(
     plan: UploadFile = File(...),
-    worktop: str = Form(...),
-    cabinet: str = Form(...)
+    cabinet: str = Form(...),
+    worktop: str = Form(...)
 ):
-    # Save uploaded sketch
-    filename = f"{uuid.uuid4()}.jpg"
-    file_path = f"static/{filename}"
-    os.makedirs("static", exist_ok=True)
-    with open(file_path, "wb") as f:
-        f.write(await plan.read())
+    try:
+        # Save temp file
+        temp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+        temp.write(await plan.read())
+        temp.close()
 
-    # Send sketch + prompt to Replicate AI
-    output = replicate.run(
-        "tstramer/t2i-adapter-sketch:1d2cd36d7a3d6f48a2026c0f8a3ebc87867b1cf8aa2ab167df92f06df2cbd32c",
-        input={
-            "image": open(file_path, "rb"),
-            "prompt": f"3D render of a modern kitchen with {cabinet} cabinets and {worktop} worktops, wide angle, high quality",
-            "scale": 10,
-            "seed": 42
-        }
-    )
+        # Replicate run
+        output = replicate.run(
+            "stability-ai/sdxl:latest",
+            input={
+                "image": open(temp.name, "rb"),
+                "prompt": f"A modern kitchen with {cabinet} cabinets and {worktop} worktops",
+                "guidance_scale": 7
+            }
+        )
 
-    # Return the generated image URL to Shopify
-    return JSONResponse({
-        "image_url": output[0]
-    })
+        return JSONResponse(content={"image_url": output})
+
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
